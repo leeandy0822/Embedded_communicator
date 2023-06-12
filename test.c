@@ -16,6 +16,7 @@
 #include <sys/wait.h>
 #include <pthread.h>
 #include "lcd.h"
+#include "msg_queue.h"
 
 #define BUFSIZE 16
 #define TRANSPORT_TYPE_TCP 0
@@ -25,15 +26,15 @@
 int conn_fd, msg_cnt;
 int sock_fd;
 int server_fd;
-char recieve_msg_buffer[9][16];
 
-
+ 
 extern pthread_mutex_t lcd_mutex;
 
 void sigint_handler(int signum) {
     fprintf(stdout, "Terminating client\n");
     close(conn_fd);
     close(sock_fd);
+    pthread_mutex_destroy(&lcd_mutex);
     exit(0);
 }
 
@@ -45,9 +46,9 @@ int main(int argc, char **argv)
 {
 
     pthread_mutex_t lcd_mutex;
-
     pthread_mutex_init(&lcd_mutex, NULL);
     pthread_t thread;
+
     struct sockaddr_in cln_addr;
     socklen_t sLen = sizeof(cln_addr);
 
@@ -65,14 +66,16 @@ int main(int argc, char **argv)
     
     signal(SIGINT, sigint_handler);
 
-    int lcd = IO_initialization();
+    IO_initialization();
     
     // Enable sending to server:1111
-    server_fd = createClientSock(argv[1], atoi(argv[2]), TRANSPORT_TYPE_TCP);
-    setup_server(server_fd);
-
-    lcdClear(lcd);
-
+    lcd.server_fd = createClientSock(argv[1], atoi(argv[2]), TRANSPORT_TYPE_TCP);
+    lcdClear(lcd.fd);
+    lcdPosition(lcd.fd, 15, 1);      
+    char temp[2];
+    sprintf(temp, "%d", 0);
+    lcdPuts(lcd.fd, temp);
+    
     sleep(1);
 
     // Enable recieving on port:1112
@@ -187,9 +190,23 @@ void connectCallback(int conn_fd){
     char rcv[BUFSIZE];
     int n;
 
-    while ((n = read(conn_fd, rcv, BUFSIZE)) != 0)
+    while (1)
     {
-        fprintf(stdout, "receive : %s\n", rcv);
+        if((n = read(conn_fd, rcv, BUFSIZE)) != 0){
+            lcd.msg_len++;
+            fprintf(stdout, "%d receive : %s\n", lcd.msg_len, rcv);
+            addQueue(&lcd.msg_queue, rcv);
+            pthread_mutex_lock(&lcd_mutex);
+            if(lcd.msg_len < 10){
+                lcdPosition(lcd.fd, 15, 1);
+            }else{
+                lcdPosition(lcd.fd, 14, 1);
+            }            
+            char temp[2];
+            sprintf(temp, "%d", lcd.msg_len);
+            lcdPuts(lcd.fd, temp);
+            pthread_mutex_unlock(&lcd_mutex);
+        }
     }
 
     close(conn_fd);
