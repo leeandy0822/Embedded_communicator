@@ -16,15 +16,20 @@
 #include <pthread.h>
 #include "lcd.h"
 
-int lcd_sender_fd;
+int lcd_send_fd;
 int lcd;
 char code_content[16] = {};
 char msg_content[16] = {};
 int code_index = 0; 
 int message_index = 0; 
+pthread_mutex_t lcd_mutex;
 
-unsigned long lastDebounceTime = 0;
-unsigned long debounceDelay = 200;
+unsigned long short_lastDebounceTime = 0;
+unsigned long long_lastDebounceTime = 0;
+unsigned long enter_lastDebounceTime = 0;
+unsigned long send_lastDebounceTime = 0;
+
+unsigned long debounceDelay = 100;
 
 char* symbolsAlphabet[][2] =
 {
@@ -68,47 +73,54 @@ char* symbolsAlphabet[][2] =
 };
 
 void setup_server(int fd){
-    lcd_sender_fd = fd;
+    lcd_send_fd = fd;
 }
 
 void button_short_ISR()
 {
     unsigned long currentTime = millis();
-    if (currentTime - lastDebounceTime >= debounceDelay)
+    if (currentTime - short_lastDebounceTime >= debounceDelay)
     {
+        pthread_mutex_lock(&lcd_mutex);
         fprintf(stdout, "ISR short trigger\n");
         strcat(code_content, ".");
         lcdPosition(lcd, code_index , 1);
         lcdPuts(lcd, ".");
-        fprintf(stdout, "%s\n", ".");
+        pthread_mutex_unlock(&lcd_mutex);
+        fprintf(stdout, "%s ", ".");
         code_index++;
+        pthread_mutex_unlock(&lcd_mutex);
+
     }
-    lastDebounceTime = currentTime;
+    short_lastDebounceTime = currentTime;
 }
 
 void button_long_ISR()
 {
     unsigned long currentTime = millis();
-    if (currentTime - lastDebounceTime >= debounceDelay)
+    if (currentTime - long_lastDebounceTime >= debounceDelay)
     {
+        pthread_mutex_lock(&lcd_mutex);
         fprintf(stdout, "ISR long trigger\n");
         strcat(code_content, "-");
         lcdPosition(lcd, code_index, 1);
         lcdPuts(lcd, "-");
-        fprintf(stdout, "%s\n", "-");
+        fprintf(stdout, "%s ", "-");
         code_index++;
+        pthread_mutex_unlock(&lcd_mutex);
+
     }
-    lastDebounceTime = currentTime;
+    long_lastDebounceTime = currentTime;
 }
 
-void button_send_ISR()
+void button_enter_ISR()
 {
     unsigned long currentTime = millis();
-    if (currentTime - lastDebounceTime >= debounceDelay)
+    if (currentTime - enter_lastDebounceTime >= debounceDelay)
     {
-        fprintf(stdout, "ISR send trigger\n");
-        fprintf(stdout, "code message: %s\n", code_content);
-
+        pthread_mutex_lock(&lcd_mutex);
+        fprintf(stdout, "ISR enter trigger ");
+        fprintf(stdout, " code message: %s\n", code_content);
         if (code_index != 0){
             lcdClear(lcd);
         }
@@ -120,28 +132,32 @@ void button_send_ISR()
         }
         lcdPosition(lcd, 0, 0);
         lcdPuts(lcd, msg_content);
-        fprintf(stdout, "%s \n", msg_content);
         strcpy(code_content, "");
         code_index = 0;
+        pthread_mutex_unlock(&lcd_mutex);
+
     }
-    lastDebounceTime = currentTime;
+    enter_lastDebounceTime = currentTime;
 }
 
-void button_backspace_ISR()
+void button_send_ISR()
 {
     unsigned long currentTime = millis();
-    if (currentTime - lastDebounceTime >= debounceDelay)
+    if (currentTime - send_lastDebounceTime >= debounceDelay)
     {
-        fprintf(stdout, "ISR backspace trigger\n");
+        pthread_mutex_lock(&lcd_mutex);
+        fprintf(stdout, "ISR send trigger\n");
         lcdClear(lcd);
         fprintf(stdout, "content %s\n", msg_content);
-        printf("%d",lcd_sender_fd);
-        write(lcd_sender_fd, msg_content, 16);
+        printf("%d",lcd_send_fd);
+        write(lcd_send_fd, msg_content, 16);
         strcpy(msg_content, "");
         code_index = 0;
         message_index = 0;
+        pthread_mutex_unlock(&lcd_mutex);
+
     }
-    lastDebounceTime = currentTime;
+    send_lastDebounceTime = currentTime;
 }
 
 int IO_initialization()
@@ -150,8 +166,8 @@ int IO_initialization()
 
     pinMode(BUTTON_SHORT, INPUT);
     pinMode(BUTTON_LONG, INPUT);
+    pinMode(BUTTON_ENTER, INPUT);
     pinMode(BUTTON_SEND, INPUT);
-    pinMode(BUTTON_BACKSPACE, INPUT);
 
     if (wiringPiISR(BUTTON_SHORT, INT_EDGE_FALLING, (void*)&button_short_ISR) != 0)
     {
@@ -165,15 +181,15 @@ int IO_initialization()
         return -1;
     }
 
-    if (wiringPiISR(BUTTON_SEND, INT_EDGE_FALLING, (void*)&button_send_ISR) != 0)
+    if (wiringPiISR(BUTTON_ENTER, INT_EDGE_FALLING, (void*)&button_enter_ISR) != 0)
     {
-        fprintf(stderr, "Registering send ISR failed\n");
+        fprintf(stderr, "Registering enter ISR failed\n");
         return -1;
     }
 
-    if (wiringPiISR(BUTTON_BACKSPACE, INT_EDGE_FALLING, (void*)&button_backspace_ISR) != 0)
+    if (wiringPiISR(BUTTON_SEND, INT_EDGE_FALLING, (void*)&button_send_ISR) != 0)
     {
-        fprintf(stderr, "Registering backspace ISR failed\n");
+        fprintf(stderr, "Registering send ISR failed\n");
         return -1;
     }
 

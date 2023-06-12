@@ -11,8 +11,8 @@
 
 #define BUTTON_SHORT     8
 #define BUTTON_LONG      9
-#define BUTTON_SEND      30
-#define BUTTON_BACKSPACE 16
+#define BUTTON_ENTER     30
+#define BUTTON_SEND      16
 
 
 

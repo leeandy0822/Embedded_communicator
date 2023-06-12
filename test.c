@@ -25,7 +25,10 @@
 int conn_fd, msg_cnt;
 int sock_fd;
 int server_fd;
+char recieve_msg_buffer[9][16];
 
+
+extern pthread_mutex_t lcd_mutex;
 
 void sigint_handler(int signum) {
     fprintf(stdout, "Terminating client\n");
@@ -40,10 +43,13 @@ void connectCallback(int conn_fd);
 
 int main(int argc, char **argv)
 {
+
+    pthread_mutex_t lcd_mutex;
+
+    pthread_mutex_init(&lcd_mutex, NULL);
     pthread_t thread;
     struct sockaddr_in cln_addr;
     socklen_t sLen = sizeof(cln_addr);
-
 
     if (argc != 3)
     {
@@ -61,21 +67,21 @@ int main(int argc, char **argv)
 
     int lcd = IO_initialization();
     
-    // Enable sending to server 1111
+    // Enable sending to server:1111
     server_fd = createClientSock(argv[1], atoi(argv[2]), TRANSPORT_TYPE_TCP);
     setup_server(server_fd);
+
     lcdClear(lcd);
+
     sleep(1);
 
-    // Open port 1112 for recieving
+    // Enable recieving on port:1112
     sock_fd = createServerSock(1112, TRANSPORT_TYPE_TCP);
     if (sock_fd < 0)
     {
         perror("Error create socket\n");
         exit(-1);
     }
-
-
 
     while (1)
     {   
