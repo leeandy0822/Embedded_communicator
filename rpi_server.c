@@ -17,38 +17,117 @@
 #include <pthread.h>
 #include "lcd.h"
 #include "msg_queue.h"
+#include "socket.h"
+#include "header.h"
 
-#define BUFSIZE 16
-#define TRANSPORT_TYPE_TCP 0
-#define TRANSPORT_TYPE_UDP 1
-
+pthread_attr_t attr;
+pthread_t ping_thread;
+pthread_t lcd_thread;
 
 int conn_fd, msg_cnt;
 int sock_fd;
 int server_fd;
+int ping_flag = 1; // to close ping
 
- 
-extern pthread_mutex_t lcd_mutex;
 
-void sigint_handler(int signum) {
+
+pthread_mutex_t lcd_mutex;
+pthread_barrier_t init;
+struct LCD lcd;
+
+void sigint_handler(int signum)
+{
+    ping_flag = 0;
+    void *status;
+    pthread_attr_destroy(&attr);
+    if (pthread_join(ping_thread, &status))
+    {
+        exit(-1);
+    }
+    if (pthread_join(lcd_thread, &status))
+    {
+        exit(-1);
+    }
     fprintf(stdout, "Terminating client\n");
     close(conn_fd);
     close(sock_fd);
     pthread_mutex_destroy(&lcd_mutex);
+    pthread_barrier_destroy(&init);
+
     exit(0);
 }
 
-int createClientSock(const char *host, int port, int type);
-int createServerSock(int port, int type);
-void connectCallback(int conn_fd);
+
+void *ping_func(void *ip) // deliver ip(char*) with this term
+{
+    FILE *p;
+    float time = 0;
+    char str[70], time_str[10];
+
+    memset(str, 0, sizeof(str));
+    memset(time_str, 0, sizeof(time_str));
+    
+    sprintf(str, "ping %s\n", (char *)ip);
+    fprintf(stdout, "%s", str);
+    p = popen(str, "r");
+    if (!p)
+    {
+        fprintf(stderr, "Error opening pipe.\n");
+        exit(-1);
+    }
+    
+    pthread_barrier_wait(&init);
+
+    while (ping_flag)
+    {
+        fgets(str, sizeof(str), p);
+        for (int i = strlen(str); i > 0; i--)
+        {
+            if (str[i] == '=')
+            {
+                strncpy(time_str, str + i + 1, 5);
+                time = atof(time_str);
+                break;
+            }
+        }
+        // fprintf(stdout, "ping speed %.3f ms\n", time);
+        lcd.ping = time;
+        pthread_mutex_lock(&lcd_mutex);
+        fprintf(stdout, "ping : %f!\n", time);
+        put_bar();
+        pthread_mutex_unlock(&lcd_mutex);
+
+        sleep(1);
+    }
+    /* speed section */
+    if (pclose(p) == -1)
+    {
+        fprintf(stderr, " Error!\n");
+        exit(1);
+    }
+    return NULL;
+}
+
+void* LCD_func(void* str) //you can use str to deliver the string into this thread
+{
+	/* init section */
+    IO_initialization();
+	pthread_barrier_wait(&init);
+	/* display exec section */
+    return NULL;
+}
 
 int main(int argc, char **argv)
 {
 
     pthread_mutex_t lcd_mutex;
     pthread_mutex_init(&lcd_mutex, NULL);
-    pthread_t thread;
+    pthread_barrier_init(&init, NULL, 3);
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
+    char ip[20];
+    pthread_t thread;
     struct sockaddr_in cln_addr;
     socklen_t sLen = sizeof(cln_addr);
 
@@ -63,20 +142,18 @@ int main(int argc, char **argv)
         fprintf(stderr, "setup wiringPi failed!\n");
         return -1;
     }
-    
-    signal(SIGINT, sigint_handler);
 
-    IO_initialization();
+    signal(SIGINT, sigint_handler);
+	memset(ip,0,20);
+
+    sprintf(ip,"%s",argv[1]);
+    pthread_create(&ping_thread, &attr, ping_func, (void*)&ip);
+	pthread_create(&lcd_thread,&attr,LCD_func,(void*)&ip);
+
+    fprintf(stdout, "wait for initialization");
     
     // Enable sending to server:1111
     lcd.server_fd = createClientSock(argv[1], atoi(argv[2]), TRANSPORT_TYPE_TCP);
-    lcdClear(lcd.fd);
-    lcdPosition(lcd.fd, 15, 1);      
-    char temp[2];
-    sprintf(temp, "%d", 0);
-    lcdPuts(lcd.fd, temp);
-    
-    sleep(1);
 
     // Enable recieving on port:1112
     sock_fd = createServerSock(1112, TRANSPORT_TYPE_TCP);
@@ -86,8 +163,11 @@ int main(int argc, char **argv)
         exit(-1);
     }
 
+    pthread_barrier_wait(&init);
+
+    
     while (1)
-    {   
+    {
         conn_fd = accept(sock_fd, (struct sockaddr *)&cln_addr, &sLen);
         if (conn_fd == -1)
         {
@@ -95,121 +175,9 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (pthread_create(&thread, NULL, (void *(*)(void *)) & connectCallback, (void*)(intptr_t)(conn_fd)))
+        if (pthread_create(&thread, NULL, (void *(*)(void *)) & connectCallback, (void *)(intptr_t)(conn_fd)))
             fprintf(stdout, "Error: pthread_create()\n");
-
     }
     return 0;
 }
 
-
-int createClientSock(const char *host, int port, int type){
-    int s;
-    struct sockaddr_in sin;
-    struct hostent *host_info;
-
-    memset(&sin, 0, sizeof(sin)); // Init sin
-    sin.sin_family = AF_INET;
-
-    if((host_info = gethostbyname(host)))
-        memcpy(&sin.sin_addr, host_info->h_addr_list[0], host_info->h_length);
-    else
-        sin.sin_addr.s_addr = inet_addr(host);
-
-    sin.sin_port = htons((unsigned short)port);
-
-    if (type == TRANSPORT_TYPE_TCP)
-        s = socket(AF_INET, SOCK_STREAM, 0);
-    else if (type == TRANSPORT_TYPE_UDP)
-        s = socket(AF_INET, SOCK_DGRAM, 0);
-    else
-    {
-        perror("Wrong transport type. Must be \"udp\" or \"tcp\"\n");
-        return -1;
-    }
-
-    if (type == TRANSPORT_TYPE_TCP)
-    {
-        if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) < 0)
-        {
-            char msg_buf[30];
-            sprintf(msg_buf, "Can't connect to %s:%d\n", host, port);
-            perror(msg_buf);
-            return -1;
-        }
-    }
-    return s;
-}
-
-int createServerSock(int port, int type){
-    int s, yes = 1;
-    struct sockaddr_in sin;
-
-    memset(&sin, 0, sizeof(sin)); // Init sin
-    sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = INADDR_ANY;
-    sin.sin_port = htons((unsigned short)port);
-
-    if (type == TRANSPORT_TYPE_TCP)
-        s = socket(PF_INET, SOCK_STREAM, 0);
-    else if (type == TRANSPORT_TYPE_UDP)
-        s = socket(PF_INET, SOCK_DGRAM, 0);
-    else
-    {
-        fprintf(stdout, "Wrong transport type. Must be \"udp\" or \"tcp\"\n");
-        return -1;
-    }
-
-    if (s < 0)
-    {
-        fprintf(stdout, "Can't create socket\n");
-        return -1;
-    }
-
-    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-
-    if (bind(s, (struct sockaddr *)&sin, sizeof(sin)) < 0)
-    {
-        fprintf(stdout, "Can't bind to port\n");
-        return -1;
-    }
-
-    if (type == TRANSPORT_TYPE_TCP)
-    {
-        if (listen(s, 10) < 0)
-        {
-            fprintf(stdout, "Can'n listen on port\n");
-            return -1;
-        }
-    }
-
-    return s;
-}
-
-void connectCallback(int conn_fd){
-    char rcv[BUFSIZE];
-    int n;
-
-    while (1)
-    {
-        if((n = read(conn_fd, rcv, BUFSIZE)) != 0){
-            lcd.msg_len++;
-            fprintf(stdout, "%d receive : %s\n", lcd.msg_len, rcv);
-            addQueue(&lcd.msg_queue, rcv);
-            pthread_mutex_lock(&lcd_mutex);
-            if(lcd.msg_len < 10){
-                lcdPosition(lcd.fd, 15, 1);
-            }else{
-                lcdPosition(lcd.fd, 14, 1);
-            }            
-            char temp[2];
-            sprintf(temp, "%d", lcd.msg_len);
-            lcdPuts(lcd.fd, temp);
-            pthread_mutex_unlock(&lcd_mutex);
-        }
-    }
-
-    close(conn_fd);
-    pthread_exit(NULL);
-    return;
-}

@@ -38,9 +38,9 @@ struct LCD{
     int msg_len;
 	int record_mode;
 	Queue msg_queue;
+    float ping;
 };
 
-extern struct LCD lcd;
 
 void button_short_ISR(void);
 void button_long_ISR(void);
@@ -49,7 +49,7 @@ void button_send_ISR(void);
 void button_record_ISR(void);
 
 void IO_initialization(void);
-
 void setup_server(int fd);
+void put_bar(void);
 
 #endif

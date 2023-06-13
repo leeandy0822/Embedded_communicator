@@ -1,19 +1,18 @@
 #include "lcd.h"
 #include "msg_queue.h"
+#include "header.h"
 
-struct LCD lcd;
+
 char code_content[16] = {};
 char msg_content[16] = {};
 int code_index = 0; 
 int message_index = 0; 
-pthread_mutex_t lcd_mutex;
 
 unsigned long short_lastDebounceTime = 0;
 unsigned long long_lastDebounceTime = 0;
 unsigned long enter_lastDebounceTime = 0;
 unsigned long send_lastDebounceTime = 0;
-
-unsigned long debounceDelay = 200;
+unsigned long debounceDelay = 150;
 
 char* symbolsAlphabet[][2] =
 {
@@ -108,7 +107,7 @@ void button_enter_ISR()
         if (code_index != 0){
             lcdClear(lcd.fd);
         }
-        for(int i = 0; i <36; i++){
+        for(int i = 0; i < 36; i++){
             if(strcmp(symbolsAlphabet[i][0], code_content) == 0){
                 strcat(msg_content, symbolsAlphabet[i][1]);
                 break; 
@@ -117,14 +116,7 @@ void button_enter_ISR()
         lcdPosition(lcd.fd, 0, 0);
         lcdPuts(lcd.fd, msg_content);
 
-        if(lcd.msg_len < 10){
-            lcdPosition(lcd.fd, 15, 1);
-        }else{
-            lcdPosition(lcd.fd, 14, 1);
-        }
-        char temp[2];
-        sprintf(temp, "%d", lcd.msg_len);
-        lcdPuts(lcd.fd, temp);
+        put_bar();
         strcpy(code_content, "");
         code_index = 0;
         pthread_mutex_unlock(&lcd_mutex);
@@ -143,15 +135,7 @@ void button_send_ISR()
         lcdClear(lcd.fd);
         fprintf(stdout, "content %s\n", msg_content);
         write(lcd.server_fd, msg_content, 16);
-
-        if(lcd.msg_len < 10){
-            lcdPosition(lcd.fd, 15, 1);
-        }else{
-            lcdPosition(lcd.fd, 14, 1);
-        }
-        char temp[2];
-        sprintf(temp, "%d", lcd.msg_len);
-        lcdPuts(lcd.fd, temp);
+        put_bar();
         strcpy(msg_content, "");
         code_index = 0;
         message_index = 0;
@@ -176,36 +160,18 @@ void button_record_ISR(){
             lcd.msg_len--;
             lcdPuts(lcd.fd, node_temp->buffer);
             free(node_temp);
-
-            if(lcd.msg_len < 10){
-                lcdPosition(lcd.fd, 15, 1);
-            }else{
-                lcdPosition(lcd.fd, 14, 1);
-            }            
-            char temp[2];
-            sprintf(temp, "%d", lcd.msg_len);
-            lcdPuts(lcd.fd, temp);
-
+            put_bar();
             pthread_mutex_unlock(&lcd_mutex);
             fprintf(stdout, "Index: %d\n", lcd.msg_len);
         }else{
             lcd.record_mode=0;
             lcdClear(lcd.fd);
-
-            if(lcd.msg_len < 10){
-                lcdPosition(lcd.fd, 15, 1);
-            }else{
-                lcdPosition(lcd.fd, 14, 1);
-            }            
-            char temp[2];
-            sprintf(temp, "%d", lcd.msg_len);
-            lcdPuts(lcd.fd, temp);
+            put_bar();
         }
     }
 
     send_lastDebounceTime = currentTime;
 }
-
 
 void IO_initialization()
 {
@@ -248,7 +214,42 @@ void IO_initialization()
         fprintf(stderr, "Registering record ISR failed\n");
         return ;
     }
+    pthread_mutex_lock(&lcd_mutex);
+    lcdClear(lcd.fd);
+    // Put the bar
+    put_bar();
+    pthread_mutex_unlock(&lcd_mutex);
+
     return;
+}
+
+void put_bar(void){
+    lcdPosition(lcd.fd, 8, 1);
+    lcdPuts(lcd.fd, "|");
+    lcdPosition(lcd.fd, 13, 1);
+    lcdPuts(lcd.fd, "|");
+    if(lcd.msg_len < 10){
+        lcdPosition(lcd.fd, 15, 1);
+    }else{
+        lcdPosition(lcd.fd, 14, 1);
+    }
+    char temp[2];
+    sprintf(temp, "%d", lcd.msg_len);
+    lcdPuts(lcd.fd, temp);
+    lcdPosition(lcd.fd, 9, 1);
+    char ping_temp[8];
+
+    if(lcd.ping < 10){
+        sprintf(ping_temp, "%.2f", lcd.ping);
+    }else if(lcd.ping > 10 && lcd.ping < 100){
+        sprintf(ping_temp, "%.1f", lcd.ping);
+    }else if(lcd.ping > 100 && lcd.ping < 999){
+        sprintf(ping_temp, "%d", (int)lcd.ping);
+    }else{
+        sprintf(ping_temp, "BAD!"); 
+    }
+    lcdPuts(lcd.fd, ping_temp);
+
 }
 
 
