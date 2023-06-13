@@ -1,6 +1,22 @@
 #include "socket.h"
 #include "header.h"
 
+// Encryption
+
+void encode(char* message) {
+    int len = strlen(message);
+    for (int i = 0; i < len; i++) {
+        message[i] = message[i] + 5 + i;
+    }
+}
+
+void decode(char* message) {
+    int len = strlen(message);
+    for (int i = 0; i < len; i++) {
+        message[i] = message[i] - 5 - i;
+    }
+}
+
 
 int createClientSock(const char *host, int port, int type)
 {
@@ -95,6 +111,7 @@ void connectCallback(int conn_fd){
     {
         if ((n = read(conn_fd, rcv, BUFSIZE)) != 0)
         {
+            decode(rcv);
             lcd.msg_len++;
             fprintf(stdout, "%d receive : %s\n", lcd.msg_len, rcv);
             addQueue(&lcd.msg_queue, rcv);

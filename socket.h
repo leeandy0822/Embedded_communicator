@@ -23,6 +23,8 @@
 #define TRANSPORT_TYPE_UDP 1
 
 
+void encode(char* message);
+void decode(char* message);
 
 int createClientSock(const char *host, int port, int type);
 int createServerSock(int port, int type);

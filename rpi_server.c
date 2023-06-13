@@ -20,20 +20,23 @@
 #include "socket.h"
 #include "header.h"
 
+// Kernel primitives
 pthread_attr_t attr;
 pthread_t ping_thread;
 pthread_t lcd_thread;
+pthread_mutex_t lcd_mutex;
+pthread_barrier_t init;
 
+
+// Variables
 int conn_fd, msg_cnt;
 int sock_fd;
 int server_fd;
 int ping_flag = 1; // to close ping
-
-
-
-pthread_mutex_t lcd_mutex;
-pthread_barrier_t init;
 struct LCD lcd;
+
+
+
 
 void sigint_handler(int signum)
 {
@@ -56,7 +59,6 @@ void sigint_handler(int signum)
 
     exit(0);
 }
-
 
 void *ping_func(void *ip) // deliver ip(char*) with this term
 {

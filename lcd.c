@@ -1,5 +1,6 @@
 #include "lcd.h"
 #include "msg_queue.h"
+#include "socket.h"
 #include "header.h"
 
 
@@ -134,7 +135,9 @@ void button_send_ISR()
         fprintf(stdout, "ISR send trigger\n");
         lcdClear(lcd.fd);
         fprintf(stdout, "content %s\n", msg_content);
+        encode(msg_content);
         write(lcd.server_fd, msg_content, 16);
+
         put_bar();
         strcpy(msg_content, "");
         code_index = 0;
@@ -147,13 +150,14 @@ void button_send_ISR()
 
 void button_record_ISR(){
     unsigned long currentTime = millis();
-    if (currentTime - send_lastDebounceTime >= 150){
+    if (currentTime - send_lastDebounceTime >= 200){
         if(lcd.msg_len > 0){
             fprintf(stdout, "ISR record trigger\n");
             lcd.record_mode=1;
 
             // If the record button is triggered, we first clear the screen , add the content and add the msg_length
             lcdClear(lcd.fd);
+
             lcdPosition(lcd.fd, 0,0);
             lcdPuts(lcd.fd, "C:");
             Q_node* node_temp = deleteQueue(&lcd.msg_queue);
@@ -162,6 +166,7 @@ void button_record_ISR(){
             free(node_temp);
             put_bar();
             pthread_mutex_unlock(&lcd_mutex);
+
             fprintf(stdout, "Index: %d\n", lcd.msg_len);
         }else{
             lcd.record_mode=0;
