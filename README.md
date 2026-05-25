@@ -1,4 +1,5 @@
-# Embedded_communicator
+# Embedded Linux network connection module
+<img width="1033" height="534" alt="image" src="https://github.com/user-attachments/assets/be0dd4cb-a2e4-4258-8998-f39b6641392b" />
 
 ## How to use
 - WiringPi (Allow LCD and GPIO function)
@@ -10,6 +11,7 @@ $ sudo apt-get install wiringpi
 $ make
 $ ./test <Server IP> <PORT>
 ```
+![Uploading image.png…]()
 
 ## Circuit 
 - LCD 
