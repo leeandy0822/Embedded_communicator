@@ -1,4 +1,4 @@
-# Embedded Linux network connection module
+# Embedded Linux Morse Code Communicator
 <img width="1033" height="534" alt="image" src="https://github.com/user-attachments/assets/be0dd4cb-a2e4-4258-8998-f39b6641392b" />
 
 ## How to use
